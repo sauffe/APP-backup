@@ -1,8 +1,8 @@
 <template>
-  <div class="app-layout">
-    <!-- 左侧公屏 -->
-    <div class="main-area">
-      <div class="public-chat">
+  <n-config-provider :theme="theme">
+    <div class="app-container">
+      <!-- 左侧聊天室 70% -->
+      <div class="chat-area">
         <header class="chat-header">当前用户：{{ store.username }}</header>
         <main class="chat-messages" ref="publicMessagesContainer">
           <div v-for="(msg, index) in store.publicMessages" :key="index" class="message-row">
@@ -11,55 +11,70 @@
               <div class="message-content">{{ msg.content }}</div>
               <div class="message-time">{{ formatTime(msg.time) }}</div>
             </div>
-            <button
+            <n-button
               v-if="msg.sender !== store.username"
-              class="reply-btn"
+              size="tiny"
+              text
               @click="startPrivateChat(msg.sender)"
+              style="margin-left: 8px"
             >
               回复
-            </button>
+            </n-button>
           </div>
           <div v-if="store.publicMessages.length === 0" class="empty-tip">暂无消息，发一条吧~</div>
         </main>
         <footer class="chat-input">
-          <input
-            v-model="inputContent"
-            type="text"
+          <n-input
+            v-model:value="inputContent"
             placeholder="输入公屏消息..."
+            :maxlength="500"
+            clearable
             @keyup.enter="sendPublic"
-          />
-          <button @click="sendPublic" :disabled="!inputContent.trim()">发送</button>
+          >
+            <template #prefix>💬</template>
+          </n-input>
+          <n-button type="primary" @click="sendPublic" :disabled="!inputContent.trim()">发送</n-button>
         </footer>
+      </div>
+
+      <!-- 右侧侧边栏 30% -->
+      <div class="sidebar">
+        <header class="sidebar-header">
+          <n-button type="primary" dashed block @click="mode = mode === 'mail' ? 'chat' : 'mail'">
+            {{ mode === 'mail' ? '📮 匿名投信' : '💬 聊天室' }}
+          </n-button>
+        </header>
+        <div class="sidebar-content">
+          <!-- 信箱模式 -->
+          <div v-if="mode === 'mail'">
+            <MailBox />
+          </div>
+          <!-- 私聊会话列表模式 -->
+          <div v-else>
+            <h4>私聊会话</h4>
+            <div
+              v-for="session in store.activeSessions"
+              :key="session.partnerId"
+              :class="['contact-item', session.hasNew ? 'blink' : '']"
+              @click="openPrivateChat(session.partnerId)"
+            >
+              <n-avatar :size="28" style="margin-right: 8px">{{ session.partnerId.substring(0,2) }}</n-avatar>
+              <span>{{ session.partnerId }}</span>
+              <n-badge v-if="session.hasNew" dot style="margin-left: auto" />
+            </div>
+            <div v-if="Object.keys(store.activeSessions).length === 0" class="empty-tip">暂无私聊</div>
+          </div>
+        </div>
       </div>
     </div>
 
-    <!-- 右侧侧边栏：显示激活的私聊会话 -->
-    <aside class="sidebar">
-      <h3>私聊</h3>
-      <div
-        v-for="session in store.activeSessions"
-        :key="session.partnerId"
-        :class="['contact-item', session.hasNew ? 'blink' : '']"
-        @click="openPrivateChat(session.partnerId)"
-      >
-        <div class="avatar">{{ session.partnerId.substring(0,2) }}</div>
-        <span class="name">{{ session.partnerId }}</span>
-        <span v-if="session.hasNew" class="badge">新</span>
-      </div>
-      <div v-if="Object.keys(store.activeSessions).length === 0" class="empty-tip">暂无私聊</div>
-    </aside>
-
-    <!-- 私聊窗口（Teleport 到 body） -->
+    <!-- 私聊浮动窗口（固定在右下角，最高层级） -->
     <Teleport to="body">
-      <div
-        v-for="partnerId in openWindows"
-        :key="partnerId"
-        class="private-window"
-      >
+      <div v-for="partnerId in openWindows" :key="partnerId" class="private-window">
         <template v-if="store.activeSessions[partnerId]">
           <div class="private-header">
             与 {{ partnerId }} 的私聊
-            <button class="close-btn" @click="closePrivateChat(partnerId)">关闭</button>
+            <n-button text @click="closePrivateChat(partnerId)">关闭</n-button>
           </div>
           <div class="private-messages" :ref="el => setPrivateMsgRef(partnerId, el)">
             <div
@@ -74,29 +89,31 @@
             <div v-if="store.activeSessions[partnerId].messages.length === 0" class="empty-tip">还没有消息</div>
           </div>
           <div class="private-input">
-            <input
-              v-model="privateInputs[partnerId]"
-              type="text"
+            <n-input
+              v-model:value="privateInputs[partnerId]"
               placeholder="输入私聊消息..."
               @keyup.enter="sendPrivate(partnerId)"
             />
-            <button @click="sendPrivate(partnerId)">发送</button>
+            <n-button type="primary" size="small" @click="sendPrivate(partnerId)">发送</n-button>
           </div>
         </template>
       </div>
     </Teleport>
-  </div>
+  </n-config-provider>
 </template>
 
 <script setup lang="ts">
 import { ref, reactive, nextTick, watch, onMounted, onUnmounted } from 'vue';
 import { useChatStore } from './stores/chat';
+import MailBox from './components/MailBox.vue';
 
 const store = useChatStore();
 const inputContent = ref('');
 const openWindows = ref<string[]>([]);
 const privateInputs = reactive<Record<string, string>>({});
 const privateMsgRefs: Record<string, HTMLElement> = {};
+const mode = ref<'mail' | 'chat'>('mail');   // 默认显示信箱
+const theme = ref(null);                     // 浅色主题
 
 function setPrivateMsgRef(partnerId: string, el: any) {
   if (el) privateMsgRefs[partnerId] = el;
@@ -110,7 +127,7 @@ watch(() => store.publicMessages.length, async () => {
   }
 });
 
-// 监听 activeSessions 变化自动清理不存在的窗口
+// 自动清理已经被关闭的私聊窗口
 watch(() => Object.keys(store.activeSessions).length, () => {
   const existingIds = Object.keys(store.activeSessions);
   openWindows.value = openWindows.value.filter(id => existingIds.includes(id));
@@ -122,7 +139,7 @@ watch(() => Object.keys(store.activeSessions).length, () => {
   }
 });
 
-// 监听消息滚动
+// 私聊消息自动滚动
 watch(store.activeSessions, async () => {
   await nextTick();
   for (const partnerId in privateMsgRefs) {
@@ -142,21 +159,18 @@ function sendPublic() {
 }
 
 function startPrivateChat(targetId: string) {
-  // 如果会话已存在，直接打开（置顶）
   if (store.activeSessions[targetId]) {
     openPrivateChat(targetId);
     return;
   }
-  // 不存在则发起邀请，并创建本地会话
   store.sendPrivateInvite(targetId);
   store.activeSessions[targetId] = { partnerId: targetId, messages: [], hasNew: false };
   openPrivateChat(targetId);
 }
 
 function openPrivateChat(partnerId: string) {
-  // 将窗口提到最前（添加到数组并去重）
   openWindows.value = openWindows.value.filter(id => id !== partnerId);
-  openWindows.value.push(partnerId);  // 最新添加的在最后，我们通过 z-index 控制置顶? 简单做法：重新 push 后新窗口会靠后渲染，由于都是 fixed，后面的会覆盖前面的。我们可以控制 z-index 递增，但这里先简化。
+  openWindows.value.push(partnerId);
   if (store.activeSessions[partnerId]) {
     store.activeSessions[partnerId].hasNew = false;
   }
@@ -179,46 +193,141 @@ function closePrivateChat(partnerId: string) {
   delete privateMsgRefs[partnerId];
 }
 
-onMounted(() => {
-  store.connect();
-});
-
-onUnmounted(() => {
-  store.disconnect();
-});
+onMounted(() => store.connect());
+onUnmounted(() => store.disconnect());
 </script>
 
 <style scoped>
-/* 原有样式保持不变 */
-.app-layout { display: flex; height: 100vh; max-width: 900px; margin: 0 auto; }
-.main-area { flex: 1; display: flex; flex-direction: column; }
-.public-chat { display: flex; flex-direction: column; height: 100%; }
-.chat-header { background: #4caf50; color: white; padding: 10px; }
-.chat-messages { flex:1; overflow-y: auto; padding:10px; background:#f5f5f5; }
-.message-row { display: flex; align-items: center; margin-bottom: 8px; }
-.message-bubble { max-width: 70%; margin-bottom: 4px; }
-.message-bubble.self { margin-left: auto; background:#dcf8c6; border-radius:8px; padding:4px 8px; }
-.message-bubble.other { margin-right: auto; background:white; border-radius:8px; padding:4px 8px; }
-.message-sender { font-size: 12px; color:#666; }
-.message-content { word-break: break-word; }
-.message-time { font-size:10px; color:#999; }
-.reply-btn { margin-left: 8px; padding: 2px 6px; font-size: 12px; cursor: pointer; }
-.empty-tip { text-align:center; color:#aaa; margin-top:40px; }
-.chat-input { display:flex; padding:8px; background:white; border-top:1px solid #ddd; }
-.chat-input input { flex:1; padding:8px; border:1px solid #ddd; border-radius:4px; margin-right:8px; }
-.chat-input button { padding:8px 16px; background:#4caf50; color:white; border:none; border-radius:4px; }
-.chat-input button:disabled { background:#ccc; }
-.sidebar { width: 160px; background: #f9f9f9; border-left: 1px solid #ddd; padding: 10px; overflow-y: auto; }
-.contact-item { display: flex; align-items: center; padding: 6px; margin-bottom: 6px; cursor: pointer; background: white; border-radius: 4px; }
-.contact-item.blink { animation: blink-animation 0.8s infinite alternate; }
-@keyframes blink-animation { from { background: #ffe0b2; } to { background: #ffcc80; } }
-.avatar { width: 28px; height: 28px; background: #4caf50; color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-right: 6px; font-size: 12px; }
-.badge { color: red; font-size: 12px; margin-left: auto; }
-.private-window { position: fixed; bottom: 20px; right: 200px; width: 300px; height: 350px; background: white; border: 1px solid #ccc; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); display: flex; flex-direction: column; z-index: 100; }
-.private-header { background: #2196f3; color: white; padding: 6px 10px; border-radius: 8px 8px 0 0; display: flex; justify-content: space-between; align-items: center; }
-.close-btn { background: none; border: none; color: white; cursor: pointer; font-size: 16px; }
-.private-messages { flex: 1; overflow-y: auto; padding: 8px; background: #fafafa; }
-.private-input { display: flex; padding: 6px; border-top: 1px solid #ddd; }
-.private-input input { flex: 1; padding: 4px; border: 1px solid #ddd; border-radius: 4px; margin-right: 4px; }
-.private-input button { padding: 4px 12px; background: #2196f3; color: white; border: none; border-radius: 4px; }
+/* 主布局 */
+.app-container {
+  display: flex;
+  height: 100vh;
+  width: 100%;
+}
+
+/* 左侧聊天室 */
+.chat-area {
+  flex: 7;
+  display: flex;
+  flex-direction: column;
+  background: #f5f5f5;
+}
+.chat-header {
+  background: #4caf50;
+  color: white;
+  padding: 10px;
+  font-weight: bold;
+}
+.chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+}
+.chat-input {
+  display: flex;
+  align-items: center;
+  padding: 12px;
+  background: white;
+  border-top: 1px solid #ddd;
+}
+.chat-input .n-input {
+  flex: 1;
+  margin-right: 12px;
+}
+
+/* 消息气泡 */
+.message-row {
+  display: flex;
+  align-items: flex-start;
+  margin-bottom: 8px;
+}
+.message-bubble {
+  max-width: 70%;
+  padding: 8px 12px;
+  border-radius: 16px;
+  word-break: break-word;
+}
+.message-bubble.self {
+  margin-left: auto;
+  background: #dcf8c6;
+  border-bottom-right-radius: 4px;
+}
+.message-bubble.other {
+  margin-right: auto;
+  background: white;
+  border-bottom-left-radius: 4px;
+}
+.message-sender { font-size: 12px; color: #666; margin-bottom: 4px; }
+.message-content { font-size: 14px; }
+.message-time { font-size: 10px; color: #999; text-align: right; margin-top: 2px; }
+.empty-tip { text-align: center; color: #aaa; margin-top: 40px; }
+
+/* 右侧侧边栏 */
+.sidebar {
+  flex: 3;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  border-left: 1px solid #eee;
+}
+.sidebar-header {
+  padding: 12px;
+  border-bottom: 1px solid #eee;
+}
+.sidebar-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+}
+
+/* 联系人条目 */
+.contact-item {
+  display: flex;
+  align-items: center;
+  padding: 8px;
+  margin-bottom: 4px;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: background 0.2s;
+}
+.contact-item:hover { background: #f0f0f0; }
+.contact-item.blink { animation: blink 0.8s infinite alternate; }
+@keyframes blink { from { background: #fff3e0; } to { background: #ffe0b2; } }
+
+/* 私聊浮动窗口（最强层级，安全位置） */
+.private-window {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  width: 360px;
+  height: 450px;
+  background: white;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.15);
+  display: flex;
+  flex-direction: column;
+  z-index: 10000;            /* 确保不会被任何元素遮挡 */
+}
+.private-header {
+  background: #2196f3;
+  color: white;
+  padding: 8px 12px;
+  border-radius: 8px 8px 0 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.private-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+  background: #fafafa;
+}
+.private-input {
+  display: flex;
+  padding: 8px;
+  border-top: 1px solid #ddd;
+  gap: 8px;
+}
 </style>

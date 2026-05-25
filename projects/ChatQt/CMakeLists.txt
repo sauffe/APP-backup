@@ -3,7 +3,7 @@ project(ChatQt LANGUAGES CXX)
 
 find_package(Qt6 6.5 REQUIRED COMPONENTS Core Widgets)
 find_package(Qt6 REQUIRED COMPONENTS Widgets WebSockets)
-
+find_package(Qt6 REQUIRED COMPONENTS Widgets WebSockets Network)
 
 qt_standard_project_setup()
 
@@ -23,6 +23,7 @@ target_link_libraries(ChatQt
         Qt::Core
         Qt::Widgets
         Qt6::WebSockets
+        Qt6::Network
 )
 
 include(GNUInstallDirs)
